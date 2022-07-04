@@ -321,8 +321,6 @@ module ActiveRecord
 
           # update 後に新しく生成したインスタンスのデータを移行する
           after_instance = new_instances.compact.last
-          self.valid_from = after_instance.valid_from
-          # update 後に新しく生成したインスタンスのデータを移行する
           @_swapped_id_previously_was = swapped_id
           @_swapped_id = after_instance.swapped_id
           self.valid_from = after_instance.valid_from
@@ -612,7 +610,7 @@ module ActiveRecord
           valid_to = record.valid_to
           valid_at_scope = finder_class.unscoped.ignore_valid_datetime
               .valid_from_lt(valid_to).valid_to_gt(valid_from)
-          relation = relation.where.not(bitemporal_id: finder_class.ignore_valid_datetime.where('? < valid_to AND valid_from < ?', valid_from, valid_to).pluck(:bitemporal_id))
+          relation = relation.where.not(bitemporal_id: record.bitemporal_id)
         else
           valid_at_scope = finder_class.unscoped.ignore_valid_datetime
               .valid_from_lt(valid_to).valid_to_gt(valid_from)
