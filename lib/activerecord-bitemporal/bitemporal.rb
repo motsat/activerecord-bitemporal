@@ -337,7 +337,7 @@ module ActiveRecord
       def destroy(force_delete: false)
         return super() if force_delete
 
-        current_time = Time.current
+        current_time = self.transaction_datetime || Time.current
         target_datetime = valid_datetime || current_time
 
         duplicated_instance = self.class.find_at_time(target_datetime, self.id).dup
