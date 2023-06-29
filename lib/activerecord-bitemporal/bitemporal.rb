@@ -464,7 +464,8 @@ module ActiveRecord
         end
       end
 
-      def bitemporal_build_update_records(valid_datetime:, current_time: Time.current, force_update: false)
+      def bitemporal_build_update_records(valid_datetime:, current_time: nil, force_update: false)
+        current_time ||= (self.transaction_datetime || Time.current)
         target_datetime = valid_datetime || current_time
         # NOTE: force_update の場合は自身のレコードを取得するような時間を指定しておく
         target_datetime = valid_from_changed? ? valid_from_was : valid_from if force_update
