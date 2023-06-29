@@ -98,6 +98,10 @@ module ActiveRecord
             option_.merge!(transaction_datetime: bitemporal_option_storage[:transaction_datetime])
           end
 
+          if bitemporal_option_storage[:force_frozen_transaction_datetime]
+            option_.merge!(frozen_transaction_datetime: bitemporal_option_storage[:frozen_transaction_datetime])
+          end
+
           bitemporal_option_storage.merge(option_)
         end
       private
@@ -241,6 +245,10 @@ module ActiveRecord
         def transaction_datetime
           bitemporal_option[:transaction_datetime]&.in_time_zone
         end
+
+        def frozen_transaction_datetime
+          bitemporal_option[:frozen_transaction_datetime]&.in_time_zone
+        end
       end
       include PersistenceOptionable
 
@@ -312,7 +320,9 @@ module ActiveRecord
       end
 
       def _update_row(attribute_names, attempted_action = 'update')
-        current_valid_record, before_instance, after_instance = bitemporal_build_update_records(valid_datetime: self.valid_datetime, force_update: self.force_update?)
+        current_valid_record, before_instance, after_instance = bitemporal_build_update_records(valid_datetime: self.valid_datetime,
+                                                                                                transaction_datetime: self.frozen_transaction_datetime,
+                                                                                                force_update: self.force_update?)
 
         # MEMO: このメソッドに来るまでに validation が発動しているので、以後 validate は考慮しなくて大丈夫
         ActiveRecord::Base.transaction(requires_new: true) do
@@ -337,8 +347,8 @@ module ActiveRecord
       def destroy(force_delete: false)
         return super() if force_delete
 
-        current_time = self.transaction_datetime || Time.current
-        target_datetime = valid_datetime || current_time
+        transaction_datetime = self.frozen_transaction_datetime || Time.current
+        target_datetime = valid_datetime || Time.current
 
         duplicated_instance = self.class.find_at_time(target_datetime, self.id).dup
 
@@ -447,11 +457,10 @@ module ActiveRecord
 
       private
 
-      def bitemporal_assign_initialize_value(valid_datetime:, current_time: Time.current)
+      def bitemporal_assign_initialize_value(valid_datetime: )
         # 自身の `valid_from` を設定
-        self.valid_from = valid_datetime || current_time if self.valid_from == ActiveRecord::Bitemporal::DEFAULT_VALID_FROM
-
-        self.transaction_from = current_time if self.transaction_from == ActiveRecord::Bitemporal::DEFAULT_TRANSACTION_FROM
+        self.valid_from = valid_datetime || Time.current if self.valid_from == ActiveRecord::Bitemporal::DEFAULT_VALID_FROM
+        self.transaction_from = (self.frozen_transaction_datetime || Time.current) if self.transaction_from == ActiveRecord::Bitemporal::DEFAULT_TRANSACTION_FROM
 
          # Assign only if defined created_at and deleted_at
         if has_column?(:created_at)
@@ -464,9 +473,9 @@ module ActiveRecord
         end
       end
 
-      def bitemporal_build_update_records(valid_datetime:, current_time: nil, force_update: false)
-        current_time ||= (self.transaction_datetime || Time.current)
-        target_datetime = valid_datetime || current_time
+      def bitemporal_build_update_records(valid_datetime:, transaction_datetime: , force_update: false)
+        transaction_datetime ||= Time.current
+        target_datetime = valid_datetime || Time.current
         # NOTE: force_update の場合は自身のレコードを取得するような時間を指定しておく
         target_datetime = valid_from_changed? ? valid_from_was : valid_from if force_update
 
@@ -487,27 +496,27 @@ module ActiveRecord
         # force_update の場合は既存のレコードを論理削除した上で新しいレコードを生成する
         if current_valid_record.present? && force_update
           # 有効なレコードは論理削除する
-          current_valid_record.assign_transaction_to(current_time)
+          current_valid_record.assign_transaction_to(transaction_datetime)
           # 以前の履歴データは valid_from/to を更新しないため、破棄する
           before_instance = nil
           # 以降の履歴データはそのまま保存
-          after_instance.transaction_from = current_time
+          after_instance.transaction_from = transaction_datetime
 
         # 有効なレコードがある場合
         elsif current_valid_record.present?
           # 有効なレコードは論理削除する
-          current_valid_record.assign_transaction_to(current_time)
+          current_valid_record.assign_transaction_to(transaction_datetime)
 
           # 以前の履歴データは valid_to を詰めて保存
           before_instance.valid_to = target_datetime
           raise ActiveRecord::RecordInvalid.new(before_instance) if before_instance.valid_from_cannot_be_greater_equal_than_valid_to
-          before_instance.transaction_from = current_time
+          before_instance.transaction_from = transaction_datetime
 
           # 以降の履歴データは valid_from と valid_to を調整して保存する
           after_instance.valid_from = target_datetime
           after_instance.valid_to = current_valid_record.valid_to
           raise ActiveRecord::RecordInvalid.new(after_instance) if after_instance.valid_from_cannot_be_greater_equal_than_valid_to
-          after_instance.transaction_from = current_time
+          after_instance.transaction_from = transaction_datetime
 
         # 有効なレコードがない場合
         else
@@ -527,7 +536,7 @@ module ActiveRecord
           # 以降の履歴データは valid_from と valid_to を調整して保存する
           after_instance.valid_from = target_datetime
           after_instance.valid_to = nearest_instance.valid_from
-          after_instance.transaction_from = current_time
+          after_instance.transaction_from = transaction_datetime
         end
 
         [current_valid_record, before_instance, after_instance]

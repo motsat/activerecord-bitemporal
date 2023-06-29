@@ -2514,7 +2514,7 @@ RSpec.describe ActiveRecord::Bitemporal do
 
     subject do
       employee.name = "Tom"
-      employee.__send__(:bitemporal_build_update_records, valid_datetime: valid_datetime, current_time: now, force_update: force_update)
+      employee.__send__(:bitemporal_build_update_records, valid_datetime: valid_datetime, transaction_datetime: now, force_update: force_update)
     end
 
     # before: |-----------------------|
